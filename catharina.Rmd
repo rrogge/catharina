@@ -1,0 +1,103 @@
+---
+title: "Catharina"
+author: "Ralph Rogge (RRO)"
+date: "5/14/2018"
+output: html_document
+---
+
+Clean up
+```{r}
+rm(list=ls())
+```
+
+Load external libraries
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+```
+
+Crater center
+```{r}
+crater <- list(center=list(l=23.55, b=-17.98), radius=49)
+```
+
+Function to convert degrees to rad.
+```{r}
+# d - degrees.
+to.rad <- function(d) return(d*pi/180)
+```
+
+Function to calculate distance on a sphere (Moon radius as default value).
+```{r}
+# l1 - Longitude of point 1
+# b1 - Latitude of point 1
+# l2 - Longitude of point 2
+# b2 - Latitude of point 2
+# r - Sphere radius
+distance <- function(l1, b1, l2, b2, r=1738) {
+    sin2 <- sin(to.rad(b1)) * sin(to.rad(b2))
+    cos2 <- cos(to.rad(b1)) * cos(to.rad(b2))
+    d <- r *  acos(sin2 + cos2 * cos(to.rad(l2-l1)))
+    return(d)
+}
+```
+
+Function to read and preprocess height profile data from file
+```{r}
+# file - File name or connection.
+# direction - (String) Tag to identify profile.
+read.profile <- function(file, direction) {
+    raw <- read.csv(file, skip=4)
+    df <- raw %>%
+        rename(a = position) %>%
+        rename(h = GLD100) %>%
+        rename(l = lon) %>%
+        rename(b = lat) %>%
+        mutate(direction = direction) %>%
+        select(l, b, h, a, direction)
+    return(df)
+}
+```
+
+Read height profiles from file
+```{r}
+profile.000_180 <- read.profile("input/profile_000-180.txt", direction="000-180")
+profile.090_270 <- read.profile("input/profile_090-270.txt", direction="090-270")
+```
+
+Distance relative to crater center
+```{r}
+r <- distance(profile.000_180$l, profile.000_180$b, crater$center$l, crater$center$b)
+profile.000_180$r <- sign(profile.000_180$a - profile.000_180$a[which.min(r)]) * r
+
+r <- distance(profile.090_270$l, profile.090_270$b, crater$center$l, crater$center$b)
+profile.090_270$r <- sign(profile.090_270$a - profile.090_270$a[which.min(r)]) * r
+```
+
+Combine profile data
+```{r}
+data <-rbind(profile.000_180, profile.090_270) %>%
+    mutate(direction = as.factor(direction))
+```
+
+Find central peak
+```{r}
+inside <- data[abs(data$r) < crater$radius/2,]
+inside[which.max(inside$h),] %>% select(l,b,r,h)
+```
+
+Plot profiles
+```{r}
+ggplot(data) +
+    geom_line(aes(r, h, color=direction)) +
+    labs(x="Distance from Center [km]", y="Height [m]", title="Height Profile") +
+    theme_bw()
+```
+
+Write profiles to file
+```{r}
+if (!dir.exists("output")) dir.create("output")
+df <- data %>% select(r, h, direction)
+write.csv(df, "output/profiles.csv", row.names=FALSE)
+```
+
